@@ -156,10 +156,15 @@ def create_book_caption(
     if original_caption:
 
         return (
-            f"📖 {title}\n"
-            f"❖ {author}\n\n"
-            f"{original_caption}"
-        )
+            "➷ ✨ 💚 ✨ ➷\n\n"
+        
+        f"📖 {title}\n"
+        
+        f"❖ {author}\n\n"
+        
+        "🧚 TinkerBooks\n\n"
+        
+        "➷ ✨ 💚 ✨ ➷"
 
     return (
         "➷ ✨ 💚 ✨ ➷\n\n"
