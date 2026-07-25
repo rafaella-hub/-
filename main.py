@@ -207,9 +207,13 @@ def create_book_caption(
 
     return (
         "➷ ✨ 💚 ✨ ➷\n\n"
+        
         f"📖 {title}\n"
+        
         f"❖ {author}\n\n"
+        
         "🧚 TinkerBooks\n\n"
+        
         "➷ ✨ 💚 ✨ ➷"
     )
 
