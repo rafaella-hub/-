@@ -375,6 +375,16 @@ telegram_app.add_handler(
 )
 
 
+@app.route("/", methods=["GET"])
+def home():
+    return "TinkerBooks Bot online!", 200
+
+
+@app.route("/health", methods=["GET"])
+def health():
+    return "OK", 200
+
+
 @app.route("/webhook", methods=["POST"])
 async def webhook():
 
@@ -405,7 +415,6 @@ async def webhook():
         )
 
         return "ERROR", 500
-
 
 # =========================================================
 # INICIALIZAÇÃO
