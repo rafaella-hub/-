@@ -418,14 +418,18 @@ async def webhook():
 # INICIALIZAÇÃO
 # =========================================================
 
-async def initialize_bot():
+import asyncio
+
+
+async def setup_bot():
 
     await telegram_app.initialize()
 
     if WEBHOOK_URL:
 
         await telegram_app.bot.set_webhook(
-            url=WEBHOOK_URL
+            url=WEBHOOK_URL,
+            drop_pending_updates=False
         )
 
         logger.info(
@@ -439,11 +443,7 @@ async def initialize_bot():
 
 if __name__ == "__main__":
 
-    import asyncio
-
-    asyncio.run(
-        initialize_bot()
-    )
+    asyncio.run(setup_bot())
 
     port = int(
         os.environ.get(
