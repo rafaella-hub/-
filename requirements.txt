@@ -1,5 +1,5 @@
 python-telegram-bot==22.5
-Flask
+Flask[async]
 pypdf
 ebooklib
 gunicorn
