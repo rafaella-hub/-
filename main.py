@@ -375,18 +375,6 @@ telegram_app.add_handler(
 )
 
 
-@app.route("/", methods=["GET"])
-def home():
-
-    return "TinkerBooks Bot online!"
-
-
-@app.route("/health", methods=["GET"])
-def health():
-
-    return "OK"
-
-
 @app.route("/webhook", methods=["POST"])
 async def webhook():
 
@@ -400,6 +388,9 @@ async def webhook():
             data,
             telegram_app.bot
         )
+
+        if not telegram_app.initialized:
+            await telegram_app.initialize()
 
         await telegram_app.process_update(
             update
