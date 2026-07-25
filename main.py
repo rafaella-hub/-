@@ -399,8 +399,10 @@ async def webhook():
             telegram_app.bot
         )
 
-        if not telegram_app.initialized:
+        try:
             await telegram_app.initialize()
+        except RuntimeError:
+            pass
 
         await telegram_app.process_update(
             update
