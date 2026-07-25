@@ -421,7 +421,6 @@ async def webhook():
 # =========================================================
 # INICIALIZAÇÃO DO BOT
 # =========================================================
-
 async def setup_bot():
 
     if not BOT_TOKEN:
@@ -444,8 +443,7 @@ async def setup_bot():
             "WEBHOOK_URL não configurado."
         )
 
-    if not telegram_app.initialized:
-        await telegram_app.initialize()
+    await telegram_app.initialize()
 
     await telegram_app.bot.set_webhook(
         url=WEBHOOK_URL,
