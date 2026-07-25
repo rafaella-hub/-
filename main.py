@@ -1,42 +1,44 @@
-from telethon import
-TelegramClient, events
-from telethon.tl.types import
-DocumentAttributeFilename
-from telethon import Button
-
+from telethon import TelegramClient, events
 import os
-import tempfile
 
-from pyPDF2 import PdfReader
-from ebooklib import epub
+# CONFIGURAÇÕES PELO RENDER
+API_ID = int(os.getenv("API_ID"))
+API_HASH = os.getenv("API_HASH")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
- 
-# CONFIGURAÇÕES 
- 
-API_ID = 31778524
-API_HASH = 699ad42a06f620e5c945e15d666b4ad8
-BOT_TOKEN = 8988209710:AAHBy8I342_stEY6bUFDzvxucEUO3WTOmec
-CANAL_ORIGEM = -1004353168693
-GRUPO_DESTINO = -1003794052661
+CANAL_ORIGEM = int(os.getenv("CANAL_ORIGEM"))
+GRUPO_DESTINO = int(os.getenv("GRUPO_DESTINO"))
+
 
 client = TelegramClient(
-  "Selly",
-  API_ID,
-  API_HASH
-@client.on(events
-           .newMessage(chats=CANAL_ORIGEM))
-  async def
-  nova_publicacao(event):
-    print("Nova publicação detectada!")
-      mensagem = event.message
+    "Selly",
+    API_ID,
+    API_HASH
+)
 
-              if mensagem.text:
-                print("Texto:", mensagem.test)
-              if mensagem.media:
-                print("Midia detectada!")
-  print("Tinker urniverse iniciado")
-  client.start()
-  client.run_until_disconnected()
+
+@client.on(events.NewMessage(chats=CANAL_ORIGEM))
+async def copiar_mensagem(event):
+
+    print("Nova mensagem recebida no Tinker Universe")
+
+    try:
+        await client.forward_messages(
+            GRUPO_DESTINO,
+            event.message
+        )
+
+        print("Mensagem enviada para Tinker Books")
+
+    except Exception as erro:
+        print("Erro ao enviar:", erro)
+
+
+print("Bot Tinker Universe iniciado!")
+
+client.start(bot_token=BOT_TOKEN)
+client.run_until_disconnected()
+
 
   
           
