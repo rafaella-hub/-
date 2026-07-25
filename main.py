@@ -1,6 +1,7 @@
 import os
 import io
 import logging
+import asyncio
 
 from flask import Flask, request
 from telegram import Update
@@ -20,6 +21,7 @@ from ebooklib import epub
 # =========================================================
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
+SOURCE_CHANNEL_ID = os.environ.get("SOURCE_CHANNEL_ID")
 DESTINATION_CHAT_ID = os.environ.get("DESTINATION_CHAT_ID")
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
 
@@ -44,21 +46,47 @@ app = Flask(__name__)
 
 
 # =========================================================
-# EXTRAI INFORMAÇÕES DO PDF
+# VERIFICA SE VEIO DO CANAL CERTO
+# =========================================================
+
+def is_from_source_channel(update):
+
+    if not update.channel_post:
+        return False
+
+    chat_id = str(
+        update.channel_post.chat_id
+    )
+
+    return chat_id == str(
+        SOURCE_CHANNEL_ID
+    )
+
+
+# =========================================================
+# EXTRAI TÍTULO E AUTOR DO PDF
 # =========================================================
 
 def extract_pdf_info(file_bytes):
 
     try:
-        pdf = PdfReader(io.BytesIO(file_bytes))
+
+        pdf = PdfReader(
+            io.BytesIO(file_bytes)
+        )
 
         title = None
         author = None
 
         if pdf.metadata:
 
-            title = pdf.metadata.get("/Title")
-            author = pdf.metadata.get("/Author")
+            title = pdf.metadata.get(
+                "/Title"
+            )
+
+            author = pdf.metadata.get(
+                "/Author"
+            )
 
         if not title or not author:
 
@@ -67,7 +95,10 @@ def extract_pdf_info(file_bytes):
             for page in pdf.pages[:3]:
 
                 try:
-                    text += page.extract_text() or ""
+                    text += (
+                        page.extract_text()
+                        or ""
+                    )
                 except Exception:
                     pass
 
@@ -92,7 +123,7 @@ def extract_pdf_info(file_bytes):
 
 
 # =========================================================
-# EXTRAI INFORMAÇÕES DO EPUB
+# EXTRAI TÍTULO E AUTOR DO EPUB
 # =========================================================
 
 def extract_epub_info(file_bytes):
@@ -137,7 +168,7 @@ def extract_epub_info(file_bytes):
 
 
 # =========================================================
-# LEGENDA
+# LEGENDA DO LIVRO
 # =========================================================
 
 def create_book_caption(
@@ -163,13 +194,12 @@ def create_book_caption(
         f"❖ {author}\n\n"
         
         "🧚 TinkerBooks\n\n"
-        
         "➷ ✨ 💚 ✨ ➷"
     )
 
 
 # =========================================================
-# RECEBE FOTO
+# PROCESSA FOTO
 # =========================================================
 
 async def handle_photo(
@@ -177,25 +207,26 @@ async def handle_photo(
     context: ContextTypes.DEFAULT_TYPE
 ):
 
-    message = update.effective_message
-
-    if not message:
+    if not is_from_source_channel(update):
         return
+
+    message = update.channel_post
 
     caption = message.caption or ""
 
-    await message.copy(
+    await context.bot.send_photo(
         chat_id=DESTINATION_CHAT_ID,
+        photo=message.photo[-1].file_id,
         caption=caption
     )
 
     logger.info(
-        "Foto enviada para o Tinker Books."
+        "Foto enviada para Tinker Books."
     )
 
 
 # =========================================================
-# RECEBE FIGURINHA
+# PROCESSA FIGURINHA
 # =========================================================
 
 async def handle_sticker(
@@ -203,22 +234,23 @@ async def handle_sticker(
     context: ContextTypes.DEFAULT_TYPE
 ):
 
-    message = update.effective_message
-
-    if not message:
+    if not is_from_source_channel(update):
         return
 
-    await message.copy(
-        chat_id=DESTINATION_CHAT_ID
+    message = update.channel_post
+
+    await context.bot.send_sticker(
+        chat_id=DESTINATION_CHAT_ID,
+        sticker=message.sticker.file_id
     )
 
     logger.info(
-        "Figurinha enviada para o Tinker Books."
+        "Figurinha enviada para Tinker Books."
     )
 
 
 # =========================================================
-# RECEBE PDF / EPUB
+# PROCESSA PDF / EPUB
 # =========================================================
 
 async def handle_document(
@@ -226,9 +258,12 @@ async def handle_document(
     context: ContextTypes.DEFAULT_TYPE
 ):
 
-    message = update.effective_message
+    if not is_from_source_channel(update):
+        return
 
-    if not message or not message.document:
+    message = update.channel_post
+
+    if not message.document:
         return
 
     document = message.document
@@ -239,28 +274,31 @@ async def handle_document(
     )
 
     extension = (
-        filename
-        .lower()
+        filename.lower()
         .split(".")[-1]
     )
 
+    # Outros documentos são apenas encaminhados
     if extension not in [
         "pdf",
         "epub"
     ]:
 
-        await message.copy(
-            chat_id=DESTINATION_CHAT_ID
+        await context.bot.send_document(
+            chat_id=DESTINATION_CHAT_ID,
+            document=document.file_id
         )
 
         return
 
     logger.info(
-        f"Recebendo livro: {filename}"
+        f"Livro recebido: {filename}"
     )
 
     telegram_file = (
-        await document.get_file()
+        await context.bot.get_file(
+            document.file_id
+        )
     )
 
     file_bytes = (
@@ -272,18 +310,14 @@ async def handle_document(
 
     if extension == "pdf":
 
-        title, author = (
-            extract_pdf_info(
-                bytes(file_bytes)
-            )
+        title, author = extract_pdf_info(
+            bytes(file_bytes)
         )
 
     elif extension == "epub":
 
-        title, author = (
-            extract_epub_info(
-                bytes(file_bytes)
-            )
+        title, author = extract_epub_info(
+            bytes(file_bytes)
         )
 
     caption = create_book_caption(
@@ -291,8 +325,9 @@ async def handle_document(
         author
     )
 
-    await message.copy(
+    await context.bot.send_document(
         chat_id=DESTINATION_CHAT_ID,
+        document=document.file_id,
         caption=caption
     )
 
@@ -302,36 +337,8 @@ async def handle_document(
 
 
 # =========================================================
-# ERROS
+# WEBHOOK
 # =========================================================
-
-async def error_handler(
-    update,
-    context
-):
-
-    logger.error(
-        "Erro no bot:",
-        exc_info=context.error
-    )
-
-
-# =========================================================
-# APLICAÇÃO TELEGRAM
-# =========================================================
-
-if not BOT_TOKEN:
-
-    raise ValueError(
-        "BOT_TOKEN não configurado."
-    )
-
-if not DESTINATION_CHAT_ID:
-
-    raise ValueError(
-        "DESTINATION_CHAT_ID não configurado."
-    )
-
 
 telegram_app = (
     Application.builder()
@@ -343,7 +350,8 @@ telegram_app = (
 
 telegram_app.add_handler(
     MessageHandler(
-        filters.PHOTO,
+        filters.UpdateType.CHANNEL_POST
+        & filters.PHOTO,
         handle_photo
     )
 )
@@ -351,7 +359,8 @@ telegram_app.add_handler(
 
 telegram_app.add_handler(
     MessageHandler(
-        filters.Sticker.ALL,
+        filters.UpdateType.CHANNEL_POST
+        & filters.Sticker.ALL,
         handle_sticker
     )
 )
@@ -359,91 +368,77 @@ telegram_app.add_handler(
 
 telegram_app.add_handler(
     MessageHandler(
-        filters.Document.ALL,
+        filters.UpdateType.CHANNEL_POST
+        & filters.Document.ALL,
         handle_document
     )
 )
 
 
-telegram_app.add_error_handler(
-    error_handler
-)
-
-
-# =========================================================
-# WEBHOOK
-# =========================================================
-
-@app.route(
-    "/",
-    methods=["GET"]
-)
+@app.route("/", methods=["GET"])
 def home():
 
     return "TinkerBooks Bot online!"
 
 
-@app.route(
-    "/health",
-    methods=["GET"]
-)
+@app.route("/health", methods=["GET"])
 def health():
 
     return "OK"
 
 
-@app.route(
-    "/webhook",
-    methods=["POST"]
-)
+@app.route("/webhook", methods=["POST"])
 async def webhook():
 
-    data = request.get_json(
-        force=True
-    )
+    try:
 
-    update = Update.de_json(
-        data,
-        telegram_app.bot
-    )
+        data = request.get_json(
+            force=True
+        )
 
-    await telegram_app.process_update(
-        update
-    )
+        update = Update.de_json(
+            data,
+            telegram_app.bot
+        )
 
-    return "OK"
+        await telegram_app.process_update(
+            update
+        )
+
+        return "OK", 200
+
+    except Exception as e:
+
+        logger.exception(
+            "Erro processando webhook"
+        )
+
+        return "ERROR", 500
 
 
 # =========================================================
 # INICIALIZAÇÃO
 # =========================================================
 
-import asyncio
-
-
 async def setup_bot():
 
     await telegram_app.initialize()
 
-    if WEBHOOK_URL:
+    await telegram_app.bot.set_webhook(
+        url=WEBHOOK_URL,
+        drop_pending_updates=False
+    )
 
-        await telegram_app.bot.set_webhook(
-            url=WEBHOOK_URL,
-            drop_pending_updates=False
-        )
+    logger.info(
+        f"Webhook configurado: {WEBHOOK_URL}"
+    )
 
-        logger.info(
-            f"Webhook configurado: {WEBHOOK_URL}"
-        )
-
-
-# =========================================================
-# EXECUÇÃO
-# =========================================================
 
 if __name__ == "__main__":
 
-    asyncio.run(setup_bot())
+    asyncio.run(
+        setup_bot()
+    )
 
     port = int(
         os.environ.get(
