@@ -10,9 +10,9 @@ import tempfile
 from pyPDF2 import PdfReader
 from ebooklib import epub
 
-" ==========================
+ 
 # CONFIGURAÇÕES 
-" ==========================
+ 
 API_ID = 31778524
 API_HASH = 699ad42a06f620e5c945e15d666b4ad8
 BOT_TOKEN = 8988209710:AAHBy8I342_stEY6bUFDzvxucEUO3WTOmec
