@@ -1,9 +1,8 @@
 import os
 import io
-import re
-import asyncio
 import logging
 
+from flask import Flask, request
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -14,7 +13,6 @@ from telegram.ext import (
 
 from pypdf import PdfReader
 from ebooklib import epub
-from bs4 import BeautifulSoup
 
 
 # =========================================================
@@ -23,6 +21,7 @@ from bs4 import BeautifulSoup
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 DESTINATION_CHAT_ID = os.environ.get("DESTINATION_CHAT_ID")
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
 
 
 # =========================================================
@@ -38,7 +37,14 @@ logger = logging.getLogger(__name__)
 
 
 # =========================================================
-# EXTRAI TÍTULO E AUTOR DO PDF
+# FLASK
+# =========================================================
+
+app = Flask(__name__)
+
+
+# =========================================================
+# EXTRAI INFORMAÇÕES DO PDF
 # =========================================================
 
 def extract_pdf_info(file_bytes):
@@ -46,22 +52,20 @@ def extract_pdf_info(file_bytes):
     try:
         pdf = PdfReader(io.BytesIO(file_bytes))
 
-        metadata = pdf.metadata
-
         title = None
         author = None
 
-        if metadata:
-            title = metadata.get("/Title")
-            author = metadata.get("/Author")
+        if pdf.metadata:
 
-        # Se não encontrar nos metadados,
-        # tenta procurar no início do texto
+            title = pdf.metadata.get("/Title")
+            author = pdf.metadata.get("/Author")
+
         if not title or not author:
 
             text = ""
 
             for page in pdf.pages[:3]:
+
                 try:
                     text += page.extract_text() or ""
                 except Exception:
@@ -76,18 +80,19 @@ def extract_pdf_info(file_bytes):
             if not title and lines:
                 title = lines[0]
 
-        title = clean_text(title)
-        author = clean_text(author)
-
         return title, author
 
     except Exception as e:
-        logger.error(f"Erro lendo PDF: {e}")
+
+        logger.error(
+            f"Erro lendo PDF: {e}"
+        )
+
         return None, None
 
 
 # =========================================================
-# EXTRAI TÍTULO E AUTOR DO EPUB
+# EXTRAI INFORMAÇÕES DO EPUB
 # =========================================================
 
 def extract_epub_info(file_bytes):
@@ -98,71 +103,69 @@ def extract_epub_info(file_bytes):
             io.BytesIO(file_bytes)
         )
 
-        title = book.get_metadata(
+        title_data = book.get_metadata(
             "DC",
             "title"
         )
 
-        author = book.get_metadata(
+        author_data = book.get_metadata(
             "DC",
             "creator"
         )
 
-        title = title[0][0] if title else None
-        author = author[0][0] if author else None
+        title = (
+            title_data[0][0]
+            if title_data
+            else None
+        )
 
-        return clean_text(title), clean_text(author)
+        author = (
+            author_data[0][0]
+            if author_data
+            else None
+        )
+
+        return title, author
 
     except Exception as e:
-        logger.error(f"Erro lendo EPUB: {e}")
+
+        logger.error(
+            f"Erro lendo EPUB: {e}"
+        )
+
         return None, None
 
 
 # =========================================================
-# LIMPA TEXTO
-# =========================================================
-
-def clean_text(text):
-
-    if not text:
-        return None
-
-    text = str(text)
-
-    text = re.sub(
-        r"\s+",
-        " ",
-        text
-    )
-
-    return text.strip()
-
-
-# =========================================================
-# MONTA LEGENDA DO LIVRO
+# LEGENDA
 # =========================================================
 
 def create_book_caption(
     title,
-    author,
-    original_caption=None
+    author
 ):
 
-    title = title or "Título não identificado"
-    author = author or "Autor não identificado"
+    title = (
+        title
+        or "Título não identificado"
+    )
+
+    author = (
+        author
+        or "Autor não identificado"
+    )
 
     return (
         "➷ ✨ 💚 ✨ ➷\n\n"
+        
         f"📖 {title}\n"
+        
         f"❖ {author}\n\n"
+        
         "🧚 TinkerBooks\n\n"
+        
         "➷ ✨ 💚 ✨ ➷"
     )
-
-
-# =========================================================
-# RECEBE FOTO
-# =========================================================
 
 
 # =========================================================
@@ -186,7 +189,9 @@ async def handle_photo(
         caption=caption
     )
 
-    logger.info("Foto enviada para o grupo.")
+    logger.info(
+        "Foto enviada para o Tinker Books."
+    )
 
 
 # =========================================================
@@ -207,11 +212,13 @@ async def handle_sticker(
         chat_id=DESTINATION_CHAT_ID
     )
 
-    logger.info("Figurinha enviada para o grupo.")
+    logger.info(
+        "Figurinha enviada para o Tinker Books."
+    )
 
 
 # =========================================================
-# RECEBE DOCUMENTOS PDF / EPUB
+# RECEBE PDF / EPUB
 # =========================================================
 
 async def handle_document(
@@ -226,11 +233,21 @@ async def handle_document(
 
     document = message.document
 
-    filename = document.file_name or ""
+    filename = (
+        document.file_name
+        or ""
+    )
 
-    extension = filename.lower().split(".")[-1]
+    extension = (
+        filename
+        .lower()
+        .split(".")[-1]
+    )
 
-    if extension not in ["pdf", "epub"]:
+    if extension not in [
+        "pdf",
+        "epub"
+    ]:
 
         await message.copy(
             chat_id=DESTINATION_CHAT_ID
@@ -242,44 +259,38 @@ async def handle_document(
         f"Recebendo livro: {filename}"
     )
 
-    # Baixa o arquivo do Telegram
-    telegram_file = await document.get_file()
+    telegram_file = (
+        await document.get_file()
+    )
 
-    file_bytes = await telegram_file.download_as_bytearray()
+    file_bytes = (
+        await telegram_file.download_as_bytearray()
+    )
 
     title = None
     author = None
 
-    # -----------------------------------------------------
-    # PDF
-    # -----------------------------------------------------
-
     if extension == "pdf":
 
-        title, author = extract_pdf_info(
-            bytes(file_bytes)
+        title, author = (
+            extract_pdf_info(
+                bytes(file_bytes)
+            )
         )
-
-    # -----------------------------------------------------
-    # EPUB
-    # -----------------------------------------------------
 
     elif extension == "epub":
 
-        title, author = extract_epub_info(
-            bytes(file_bytes)
+        title, author = (
+            extract_epub_info(
+                bytes(file_bytes)
+            )
         )
-
-    # Legenda original do post
-    original_caption = message.caption or ""
 
     caption = create_book_caption(
         title,
-        author,
-        original_caption
+        author
     )
 
-    # Envia para o grupo
     await message.copy(
         chat_id=DESTINATION_CHAT_ID,
         caption=caption
@@ -295,8 +306,8 @@ async def handle_document(
 # =========================================================
 
 async def error_handler(
-    update: object,
-    context: ContextTypes.DEFAULT_TYPE
+    update,
+    context
 ):
 
     logger.error(
@@ -306,67 +317,142 @@ async def error_handler(
 
 
 # =========================================================
-# INICIA BOT
+# APLICAÇÃO TELEGRAM
 # =========================================================
 
-def main():
+if not BOT_TOKEN:
 
-    if not BOT_TOKEN:
+    raise ValueError(
+        "BOT_TOKEN não configurado."
+    )
 
-        raise ValueError(
-            "BOT_TOKEN não configurado."
+if not DESTINATION_CHAT_ID:
+
+    raise ValueError(
+        "DESTINATION_CHAT_ID não configurado."
+    )
+
+
+telegram_app = (
+    Application.builder()
+    .token(BOT_TOKEN)
+    .updater(None)
+    .build()
+)
+
+
+telegram_app.add_handler(
+    MessageHandler(
+        filters.PHOTO,
+        handle_photo
+    )
+)
+
+
+telegram_app.add_handler(
+    MessageHandler(
+        filters.Sticker.ALL,
+        handle_sticker
+    )
+)
+
+
+telegram_app.add_handler(
+    MessageHandler(
+        filters.Document.ALL,
+        handle_document
+    )
+)
+
+
+telegram_app.add_error_handler(
+    error_handler
+)
+
+
+# =========================================================
+# WEBHOOK
+# =========================================================
+
+@app.route(
+    "/",
+    methods=["GET"]
+)
+def home():
+
+    return "TinkerBooks Bot online!"
+
+
+@app.route(
+    "/health",
+    methods=["GET"]
+)
+def health():
+
+    return "OK"
+
+
+@app.route(
+    "/webhook",
+    methods=["POST"]
+)
+async def webhook():
+
+    data = request.get_json(
+        force=True
+    )
+
+    update = Update.de_json(
+        data,
+        telegram_app.bot
+    )
+
+    await telegram_app.process_update(
+        update
+    )
+
+    return "OK"
+
+
+# =========================================================
+# INICIALIZAÇÃO
+# =========================================================
+
+async def initialize_bot():
+
+    await telegram_app.initialize()
+
+    if WEBHOOK_URL:
+
+        await telegram_app.bot.set_webhook(
+            url=WEBHOOK_URL
         )
 
-    if not DESTINATION_CHAT_ID:
-
-        raise ValueError(
-            "DESTINATION_CHAT_ID não configurado."
+        logger.info(
+            f"Webhook configurado: {WEBHOOK_URL}"
         )
 
-    application = (
-        Application.builder()
-        .token(BOT_TOKEN)
-        .build()
-    )
 
-    # Fotos
-    application.add_handler(
-        MessageHandler(
-            filters.PHOTO,
-            handle_photo
-        )
-    )
-
-    # Figurinhas
-    application.add_handler(
-        MessageHandler(
-            filters.Sticker.ALL,
-            handle_sticker
-        )
-    )
-
-    # PDF / EPUB
-    application.add_handler(
-        MessageHandler(
-            filters.Document.ALL,
-            handle_document
-        )
-    )
-
-    application.add_error_handler(
-        error_handler
-    )
-
-    logger.info(
-        "🤖 TinkerBooks iniciado!"
-    )
-
-    application.run_polling(
-        drop_pending_updates=False
-    )
-
+# =========================================================
+# EXECUÇÃO
+# =========================================================
 
 if __name__ == "__main__":
-    main()
-  
-          
+
+    import asyncio
+
+    asyncio.run(
+        initialize_bot()
+    )
+
+    port = int(
+        os.environ.get(
+            "PORT",
+            10000
+        )
+    )
+
+    app.run(
+        host="0.0.0.0",
+        port=port
+    )
