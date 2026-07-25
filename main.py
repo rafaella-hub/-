@@ -417,12 +417,33 @@ async def webhook():
         return "ERROR", 500
 
 # =========================================================
-# INICIALIZAÇÃO
+# INICIALIZAÇÃO DO BOT
 # =========================================================
 
 async def setup_bot():
 
-    await telegram_app.initialize()
+    if not BOT_TOKEN:
+        raise ValueError(
+            "BOT_TOKEN não configurado."
+        )
+
+    if not SOURCE_CHANNEL_ID:
+        raise ValueError(
+            "SOURCE_CHANNEL_ID não configurado."
+        )
+
+    if not DESTINATION_CHAT_ID:
+        raise ValueError(
+            "DESTINATION_CHAT_ID não configurado."
+        )
+
+    if not WEBHOOK_URL:
+        raise ValueError(
+            "WEBHOOK_URL não configurado."
+        )
+
+    if not telegram_app.initialized:
+        await telegram_app.initialize()
 
     await telegram_app.bot.set_webhook(
         url=WEBHOOK_URL,
@@ -430,24 +451,18 @@ async def setup_bot():
     )
 
     logger.info(
+        "🤖 TinkerBooks iniciado!"
+    )
+
+    logger.info(
         f"Webhook configurado: {WEBHOOK_URL}"
     )
 
 
-if __name__ == "__main__":
+# =========================================================
+# INICIALIZAÇÃO QUANDO O GUNICORN CARREGA O APP
+# =========================================================
 
-    asyncio.run(
-        setup_bot()
-    )
-
-    port = int(
-        os.environ.get(
-            "PORT",
-            10000
-        )
-    )
-
-    app.run(
-        host="0.0.0.0",
-        port=port
-    )
+asyncio.run(
+    setup_bot()
+)
