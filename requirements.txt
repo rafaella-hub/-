@@ -1,0 +1,4 @@
+telethon
+ebooklib
+beautifulsoup4
+pypdf
