@@ -1,4 +1,4 @@
-telethon
+ python-telegram-bot==22.5
+pypdf
 ebooklib
 beautifulsoup4
-PyPDF2
