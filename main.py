@@ -1,7 +1,7 @@
 import os
 import io
-import logging
 import asyncio
+import logging
 
 from flask import Flask, request
 from telegram import Update
@@ -46,7 +46,14 @@ app = Flask(__name__)
 
 
 # =========================================================
-# TELEGRAM
+# FILA DOS LIVROS
+# =========================================================
+
+book_queue = []
+
+
+# =========================================================
+# APLICAÇÃO TELEGRAM
 # =========================================================
 
 telegram_app = (
@@ -55,20 +62,6 @@ telegram_app = (
     .updater(None)
     .build()
 )
-
-
-# =========================================================
-# FILA DOS LIVROS
-# =========================================================
-#
-# Cada item representa:
-#
-# foto -> epub -> pdf -> figurinha
-#
-# A foto fica guardada até chegar o EPUB.
-# =========================================================
-
-book_queue = []
 
 
 # =========================================================
@@ -88,61 +81,7 @@ def is_from_source_channel(update):
 
 
 # =========================================================
-# LÊ PDF
-# =========================================================
-
-def extract_pdf_info(file_bytes):
-
-    try:
-
-        pdf = PdfReader(
-            io.BytesIO(file_bytes)
-        )
-
-        title = None
-        author = None
-
-        if pdf.metadata:
-
-            title = pdf.metadata.get("/Title")
-            author = pdf.metadata.get("/Author")
-
-        if not title or not author:
-
-            text = ""
-
-            for page in pdf.pages[:3]:
-
-                try:
-                    text += (
-                        page.extract_text()
-                        or ""
-                    )
-                except Exception:
-                    pass
-
-            lines = [
-                line.strip()
-                for line in text.splitlines()
-                if line.strip()
-            ]
-
-            if not title and lines:
-                title = lines[0]
-
-        return title, author
-
-    except Exception as e:
-
-        logger.exception(
-            f"Erro lendo PDF: {e}"
-        )
-
-        return None, None
-
-
-# =========================================================
-# LÊ EPUB
+# EXTRAI INFORMAÇÕES DO EPUB
 # =========================================================
 
 def extract_epub_info(file_bytes):
@@ -164,14 +103,16 @@ def extract_epub_info(file_bytes):
         )
 
         title = (
-            title_data[0][0]
+            title_data[0][0].strip()
             if title_data
+            and title_data[0][0]
             else None
         )
 
         author = (
-            author_data[0][0]
+            author_data[0][0].strip()
             if author_data
+            and author_data[0][0]
             else None
         )
 
@@ -181,6 +122,42 @@ def extract_epub_info(file_bytes):
 
         logger.exception(
             f"Erro lendo EPUB: {e}"
+        )
+
+        return None, None
+
+
+# =========================================================
+# EXTRAI INFORMAÇÕES DO PDF
+# =========================================================
+
+def extract_pdf_info(file_bytes):
+
+    try:
+
+        pdf = PdfReader(
+            io.BytesIO(file_bytes)
+        )
+
+        title = None
+        author = None
+
+        if pdf.metadata:
+
+            title = pdf.metadata.get(
+                "/Title"
+            )
+
+            author = pdf.metadata.get(
+                "/Author"
+            )
+
+        return title, author
+
+    except Exception as e:
+
+        logger.exception(
+            f"Erro lendo PDF: {e}"
         )
 
         return None, None
@@ -219,16 +196,16 @@ def create_book_caption(
 
 
 # =========================================================
-# ENVIA UM LIVRO COMPLETO
+# ENVIA O CONJUNTO COMPLETO
 # =========================================================
 
 async def send_complete_book(
     context,
-    item
+    book
 ):
 
-    title = item.get("title")
-    author = item.get("author")
+    title = book["title"]
+    author = book["author"]
 
     caption = create_book_caption(
         title,
@@ -236,48 +213,44 @@ async def send_complete_book(
     )
 
     # -----------------------------------------------------
-    # 1. FOTO + LEGENDA
+    # FOTO + LEGENDA
     # -----------------------------------------------------
 
     await context.bot.send_photo(
         chat_id=DESTINATION_CHAT_ID,
-        photo=item["photo_file_id"],
+        photo=book["photo_file_id"],
         caption=caption
     )
 
     # -----------------------------------------------------
-    # 2. EPUB SEM LEGENDA
+    # EPUB SEM LEGENDA
     # -----------------------------------------------------
 
     await context.bot.send_document(
         chat_id=DESTINATION_CHAT_ID,
-        document=item["epub_file_id"]
+        document=book["epub_file_id"]
     )
 
     # -----------------------------------------------------
-    # 3. PDF SEM LEGENDA
+    # PDF SEM LEGENDA
     # -----------------------------------------------------
 
-    if item.get("pdf_file_id"):
-
-        await context.bot.send_document(
-            chat_id=DESTINATION_CHAT_ID,
-            document=item["pdf_file_id"]
-        )
+    await context.bot.send_document(
+        chat_id=DESTINATION_CHAT_ID,
+        document=book["pdf_file_id"]
+    )
 
     # -----------------------------------------------------
-    # 4. FIGURINHA SEM LEGENDA
+    # FIGURINHA SEM LEGENDA
     # -----------------------------------------------------
 
-    if item.get("sticker_file_id"):
-
-        await context.bot.send_sticker(
-            chat_id=DESTINATION_CHAT_ID,
-            sticker=item["sticker_file_id"]
-        )
+    await context.bot.send_sticker(
+        chat_id=DESTINATION_CHAT_ID,
+        sticker=book["sticker_file_id"]
+    )
 
     logger.info(
-        f"Livro completo enviado: {title} - {author}"
+        f"✅ CONJUNTO ENVIADO: {title} - {author}"
     )
 
 
@@ -317,12 +290,12 @@ async def handle_photo(
     })
 
     logger.info(
-        "📸 Foto adicionada à fila."
+        "📸 FOTO adicionada à fila."
     )
 
 
 # =========================================================
-# EPUB / PDF
+# DOCUMENTOS
 # =========================================================
 
 async def handle_document(
@@ -350,10 +323,6 @@ async def handle_document(
         .rsplit(".", 1)[-1]
     )
 
-    # -----------------------------------------------------
-    # IGNORA DOCUMENTOS QUE NÃO SÃO PDF/EPUB
-    # -----------------------------------------------------
-
     if extension not in [
         "epub",
         "pdf"
@@ -365,41 +334,39 @@ async def handle_document(
 
         return
 
-    # -----------------------------------------------------
-    # PROCURA O PRIMEIRO LIVRO QUE AINDA PRECISA
-    # DE EPUB/PDF
-    # -----------------------------------------------------
 
-    item = None
-
-    for book in book_queue:
-
-        if extension == "epub":
-            if book["epub_file_id"] is None:
-                item = book
-                break
-
-        elif extension == "pdf":
-            if (
-                book["epub_file_id"] is not None
-                and book["pdf_file_id"] is None
-            ):
-                item = book
-                break
-
-    if item is None:
-
-        logger.warning(
-            f"{extension.upper()} recebido sem conjunto correspondente."
-        )
-
-        return
-
-    # -----------------------------------------------------
+    # =====================================================
     # EPUB
-    # -----------------------------------------------------
+    # =====================================================
 
     if extension == "epub":
+
+        # Procura o primeiro conjunto que ainda
+        # não recebeu EPUB.
+
+        book = None
+
+        for item in book_queue:
+
+            if (
+                item["epub_file_id"]
+                is None
+            ):
+
+                book = item
+                break
+
+        if book is None:
+
+            logger.warning(
+                "EPUB recebido sem foto correspondente."
+            )
+
+            return
+
+        logger.info(
+            f"📚 EPUB recebido: {filename}"
+        )
 
         telegram_file = (
             await context.bot.get_file(
@@ -415,36 +382,59 @@ async def handle_document(
             bytes(file_bytes)
         )
 
-        item["epub_file_id"] = (
+        book["epub_file_id"] = (
             document.file_id
         )
 
-        item["title"] = title
-        item["author"] = author
+        book["title"] = title
+        book["author"] = author
 
         logger.info(
-            f"📚 EPUB lido: {title} - {author}"
+            f"📖 EPUB identificado: "
+            f"{title} - {author}"
         )
 
-    # -----------------------------------------------------
+        return
+
+
+    # =====================================================
     # PDF
-    # -----------------------------------------------------
+    # =====================================================
 
-    elif extension == "pdf":
+    if extension == "pdf":
 
-        item["pdf_file_id"] = (
+        # O PDF pertence ao primeiro conjunto
+        # que já tem EPUB mas ainda não tem PDF.
+
+        book = None
+
+        for item in book_queue:
+
+            if (
+                item["epub_file_id"]
+                is not None
+                and item["pdf_file_id"]
+                is None
+            ):
+
+                book = item
+                break
+
+        if book is None:
+
+            logger.warning(
+                "PDF recebido sem EPUB correspondente."
+            )
+
+            return
+
+        book["pdf_file_id"] = (
             document.file_id
         )
 
         logger.info(
-            f"📕 PDF adicionado: {filename}"
+            f"📕 PDF recebido: {filename}"
         )
-
-    # -----------------------------------------------------
-    # NÃO ENVIA AINDA.
-    #
-    # Espera PDF + figurinha.
-    # -----------------------------------------------------
 
 
 # =========================================================
@@ -461,56 +451,50 @@ async def handle_sticker(
 
     message = update.channel_post
 
-    # -----------------------------------------------------
-    # PROCURA O PRIMEIRO LIVRO QUE TEM EPUB + PDF
-    # E AINDA NÃO TEM FIGURINHA
-    # -----------------------------------------------------
+    # Procura o primeiro conjunto que tenha:
+    #
+    # FOTO + EPUB + PDF
+    #
+    # mas ainda não tenha figurinha.
 
-    item = None
+    book = None
 
-    for book in book_queue:
+    for item in book_queue:
 
         if (
-            book["epub_file_id"] is not None
-            and book["pdf_file_id"] is not None
-            and book["sticker_file_id"] is None
+            item["epub_file_id"] is not None
+            and item["pdf_file_id"] is not None
+            and item["sticker_file_id"] is None
         ):
 
-            item = book
+            book = item
             break
 
-    if item is None:
+    if book is None:
 
         logger.warning(
-            "Figurinha recebida sem livro completo."
+            "Figurinha recebida sem conjunto completo."
         )
 
         return
 
-    item["sticker_file_id"] = (
+    book["sticker_file_id"] = (
         message.sticker.file_id
     )
 
     logger.info(
-        "🧚 Figurinha recebida."
+        "🧚 FIGURINHA recebida."
     )
 
-    # -----------------------------------------------------
-    # AGORA O CONJUNTO ESTÁ COMPLETO
-    # -----------------------------------------------------
+    # Agora o conjunto está completo.
 
     await send_complete_book(
         context,
-        item
+        book
     )
 
-    # Remove o livro da fila
     book_queue.remove(
-        item
-    )
-
-    logger.info(
-        "✅ Conjunto completo enviado para Tinker Books."
+        book
     )
 
 
@@ -544,7 +528,7 @@ telegram_app.add_handler(
 
 
 # =========================================================
-# PÁGINA PRINCIPAL
+# ROTAS
 # =========================================================
 
 @app.route(
@@ -558,10 +542,6 @@ def home():
         200
     )
 
-
-# =========================================================
-# HEALTH
-# =========================================================
 
 @app.route(
     "/health",
@@ -593,20 +573,76 @@ async def webhook():
             telegram_app.bot
         )
 
-        if not telegram_app._initialized:
-
-            await telegram_app.initialize()
-
         await telegram_app.process_update(
             update
         )
 
         return "OK", 200
 
-    except Exception:
+    except Exception as e:
 
         logger.exception(
             "Erro processando webhook"
         )
 
         return "ERROR", 500
+
+
+# =========================================================
+# INICIALIZAÇÃO
+# =========================================================
+
+async def initialize_bot():
+
+    if not BOT_TOKEN:
+        raise ValueError(
+            "BOT_TOKEN não configurado."
+        )
+
+    if not SOURCE_CHANNEL_ID:
+        raise ValueError(
+            "SOURCE_CHANNEL_ID não configurado."
+        )
+
+    if not DESTINATION_CHAT_ID:
+        raise ValueError(
+            "DESTINATION_CHAT_ID não configurado."
+        )
+
+    if not WEBHOOK_URL:
+        raise ValueError(
+            "WEBHOOK_URL não configurado."
+        )
+
+    await telegram_app.initialize()
+
+    await telegram_app.bot.set_webhook(
+        url=WEBHOOK_URL,
+        drop_pending_updates=False
+    )
+
+    logger.info(
+        "🤖 TinkerBooks inicializado."
+    )
+
+    logger.info(
+        f"Webhook: {WEBHOOK_URL}"
+    )
+
+
+# =========================================================
+# IMPORTANTE
+# =========================================================
+#
+# O Gunicorn carrega este arquivo.
+# Não usamos asyncio.run() aqui.
+#
+# A inicialização será feita pelo hook do Flask.
+# =========================================================
+
+@app.before_request
+async def ensure_telegram_initialized():
+
+    if not telegram_app._initialized:
+
+        await initialize_bot()
