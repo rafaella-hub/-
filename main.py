@@ -151,32 +151,18 @@ def create_book_caption(
     title = title or "Título não identificado"
     author = author or "Autor não identificado"
 
-    # Se você já tiver uma legenda pronta,
-    # podemos colocar o título e autor nela.
-    if original_caption:
-
-        return (
-            "➷ ✨ 💚 ✨ ➷\n\n"
-        
-        f"📖 {title}\n"
-        
-        f"❖ {author}\n\n"
-        
-        "🧚 TinkerBooks\n\n"
-        
-        "➷ ✨ 💚 ✨ ➷"
-
     return (
         "➷ ✨ 💚 ✨ ➷\n\n"
-        
         f"📖 {title}\n"
-        
         f"❖ {author}\n\n"
-        
         "🧚 TinkerBooks\n\n"
-        
         "➷ ✨ 💚 ✨ ➷"
     )
+
+
+# =========================================================
+# RECEBE FOTO
+# =========================================================
 
 
 # =========================================================
